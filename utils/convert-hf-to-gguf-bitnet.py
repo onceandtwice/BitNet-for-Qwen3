@@ -1081,6 +1081,92 @@ class BitnetModel(Model):
                     self.gguf_writer.add_tensor(new_name + "_scale", i2_scale, raw_dtype=gguf.GGMLQuantizationType.F32)
 
 
+@Model.register("Qwen3ForCausalLM")
+class QwenModel(BitnetModel):
+    """
+    Qwen3 model converter for BitNet GGUF format.
+    Inherits BitNet quantization logic but handles Qwen-specific tokenizer.
+    Applies BitNet quantization to weight tensors.
+    """
+    
+    def _set_vocab_qwen_bpe(self):
+        """Extract vocabulary using BpeVocab class (reads vocab.json directly)."""
+        from convert import BpeVocab
+        
+        vocab = BpeVocab(self.dir_model)
+        tokens = []
+        scores = []
+        toktypes = []
+
+        for text, score, toktype in vocab.all_tokens():
+            tokens.append(text.decode('utf-8') if isinstance(text, bytes) else text)
+            scores.append(score)
+            toktypes.append(toktype)
+
+        assert len(tokens) == vocab.vocab_size
+
+        self.gguf_writer.add_tokenizer_model("gpt2")
+        self.gguf_writer.add_tokenizer_pre("qwen3")
+        self.gguf_writer.add_token_list(tokens)
+        self.gguf_writer.add_token_scores(scores)
+        self.gguf_writer.add_token_types(toktypes)
+
+        special_vocab = gguf.SpecialVocab(self.dir_model, load_merges=True)
+        special_vocab.add_to_gguf(self.gguf_writer)
+    
+    def set_vocab(self):
+        """
+        Qwen3 uses tiktoken (BPE-based), not SentencePiece.
+        Try BpeVocab first (reads vocab.json directly), then fallback chain.
+        """
+        try:
+            self._set_vocab_qwen_bpe()
+        except (FileNotFoundError, TypeError, ValueError) as e:
+            logger.debug(f"BpeVocab extraction failed: {e}, trying fallback methods...")
+            try:
+                self._set_vocab_sentencepiece()
+            except FileNotFoundError:
+                try:
+                    self._set_vocab_llama_hf()
+                except (FileNotFoundError, TypeError):
+                    # Qwen3 uses tiktoken (BPE-based) - handled by GPT2 path
+                    self._set_vocab_gpt2()
+    
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        """
+        Apply BitNet quantization to weight tensors, same as BitnetModel.
+        
+        This method quantizes all weight matrices that should be quantized in Qwen3 models:
+        - Attention projections: q_proj, k_proj, v_proj, o_proj
+        - Feedforward projections: gate_proj, up_proj, down_proj
+        
+        Note: The following tensors are explicitly NOT quantized (handled in write_tensors):
+        - embed_tokens.weight (embedding layer)
+        - norm.weight (layer normalization)
+        - lm_head.weight (output projection, if present)
+        
+        Tensor names are matched using endswith() to handle HuggingFace naming conventions:
+        - model.layers.{i}.self_attn.{proj}.weight
+        - model.layers.{i}.mlp.{proj}.weight
+        """
+        if name.endswith((".self_attn.k_norm.weight", ".self_attn.q_norm.weight", 
+                      ".self_attn.v_norm.weight")):
+            return []  # Skip these tensors, we will handle them in write_tensors
+
+        # Skip lm_head.weight - BITNET architecture doesn't support OUTPUT tensor
+        if name == "lm_head.weight":
+            logger.debug(f"Skipping tensor {name!r} - BITNET architecture doesn't support OUTPUT tensor")
+            return []
+
+        # quant weight to i2 (in fp16)
+        if name.endswith(("q_proj.weight", "k_proj.weight", "v_proj.weight", 
+                          "down_proj.weight", "up_proj.weight", "gate_proj.weight",
+                          "o_proj.weight")):
+            data_torch = self.weight_quant(data_torch)
+
+        return [(self.map_tensor_name(name), data_torch)]
+
+
 ###### CONVERSION LOGIC ######
 
 
