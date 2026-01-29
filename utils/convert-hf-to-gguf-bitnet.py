@@ -1096,6 +1096,13 @@ class QwenModel(BitnetModel):
         # Keep the rope scaling settings from BitnetModel
         self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.LINEAR)
         self.gguf_writer.add_rope_scaling_factor(1.0)
+
+    def get_vocab_base_pre(self, tokenizer) -> str:
+        """
+        Override to bypass hash detection for Qwen3.
+        Qwen3 uses the same pre-tokenizer as Qwen2.
+        """
+        return "qwen2"
     
     def set_vocab(self):
         """
