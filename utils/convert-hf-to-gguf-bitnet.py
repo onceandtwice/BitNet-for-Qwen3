@@ -1089,6 +1089,16 @@ class QwenModel(BitnetModel):
     Applies BitNet quantization to weight tensors.
     """
     
+    def set_gguf_parameters(self):
+        """Set GGUF parameters, but don't set vocab_size yet (we'll set it after extracting tokens)."""
+        # Call Model.set_gguf_parameters() directly to skip BitnetModel's add_vocab_size()
+        # We'll set vocab_size in _set_vocab_qwen_bpe() with the actual token count
+        Model.set_gguf_parameters(self)
+        
+        # Keep the rope scaling settings from BitnetModel
+        self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.LINEAR)
+        self.gguf_writer.add_rope_scaling_factor(1.0)
+    
     def _set_vocab_qwen_bpe(self):
         """Extract vocabulary using BpeVocab class (reads vocab.json directly)."""
         from convert import BpeVocab
