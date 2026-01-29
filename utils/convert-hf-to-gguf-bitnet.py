@@ -1090,60 +1090,26 @@ class QwenModel(BitnetModel):
     """
     
     def set_gguf_parameters(self):
-        """Set GGUF parameters, but don't set vocab_size yet (we'll set it after extracting tokens)."""
-        # Call Model.set_gguf_parameters() directly to skip BitnetModel's add_vocab_size()
-        # We'll set vocab_size in _set_vocab_qwen_bpe() with the actual token count
+        """Set GGUF parameters with rope scaling."""
         Model.set_gguf_parameters(self)
         
         # Keep the rope scaling settings from BitnetModel
         self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.LINEAR)
         self.gguf_writer.add_rope_scaling_factor(1.0)
     
-    def _set_vocab_qwen_bpe(self):
-        """Extract vocabulary using BpeVocab class (reads vocab.json directly)."""
-        from convert import BpeVocab
-        
-        vocab = BpeVocab(self.dir_model)
-        tokens = []
-        scores = []
-        toktypes = []
-
-        for text, score, toktype in vocab.all_tokens():
-            tokens.append(text.decode('utf-8') if isinstance(text, bytes) else text)
-            scores.append(score)
-            toktypes.append(toktype)
-
-        assert len(tokens) == vocab.vocab_size
-
-        # Set vocab size to the actual number of tokens extracted
-        self.gguf_writer.add_vocab_size(len(tokens))
-
+    def set_vocab(self):
+        """
+        Simple tokenizer setup for Qwen3.
+        Uses the base GPT2 method but forces pre-tokenizer to "qwen2" (same as Qwen3).
+        """
+        tokens, toktypes, _ = self.get_vocab_base()
         self.gguf_writer.add_tokenizer_model("gpt2")
         self.gguf_writer.add_tokenizer_pre("qwen2")
         self.gguf_writer.add_token_list(tokens)
-        self.gguf_writer.add_token_scores(scores)
         self.gguf_writer.add_token_types(toktypes)
 
         special_vocab = gguf.SpecialVocab(self.dir_model, load_merges=True)
         special_vocab.add_to_gguf(self.gguf_writer)
-    
-    def set_vocab(self):
-        """
-        Qwen3 uses tiktoken (BPE-based), not SentencePiece.
-        Try BpeVocab first (reads vocab.json directly), then fallback chain.
-        """
-        try:
-            self._set_vocab_qwen_bpe()
-        except (FileNotFoundError, TypeError, ValueError) as e:
-            logger.debug(f"BpeVocab extraction failed: {e}, trying fallback methods...")
-            try:
-                self._set_vocab_sentencepiece()
-            except FileNotFoundError:
-                try:
-                    self._set_vocab_llama_hf()
-                except (FileNotFoundError, TypeError):
-                    # Qwen3 uses tiktoken (BPE-based) - handled by GPT2 path
-                    self._set_vocab_gpt2()
     
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         """
