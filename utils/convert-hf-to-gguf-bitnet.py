@@ -1151,6 +1151,47 @@ class QwenModel(BitnetModel):
             data_torch = self.weight_quant(data_torch)
 
         return [(self.map_tensor_name(name), data_torch)]
+    
+    def write_tensors(self):
+        """
+        Write all tensors including dummy attn_sub_norm and ffn_sub_norm for BITNET architecture.
+        """
+        # First, write all normal tensors using parent's method
+        super().write_tensors()
+        
+        # Add dummy attn_sub_norm and ffn_sub_norm tensors (identity tensors - all ones)
+        # These are required by BITNET architecture but Qwen3 doesn't have them
+        n_layers = self.block_count
+        hidden_size = self.hparams.get("hidden_size")
+        intermediate_size = self.hparams.get("intermediate_size")
+        
+        if hidden_size is None or intermediate_size is None:
+            logger.warning("Could not determine hidden_size or intermediate_size, skipping dummy sub_norm tensors")
+            return
+        
+        logger.info(f"Adding dummy attn_sub_norm and ffn_sub_norm tensors for {n_layers} layers")
+        
+        for i in range(n_layers):
+            # Create identity tensor for attn_sub_norm (all ones, shape: hidden_size)
+            # RMSNorm with all-ones weights is effectively a no-op
+            attn_sub_norm = np.ones(hidden_size, dtype=np.float32)
+            self.gguf_writer.add_tensor(
+                f"blk.{i}.attn_sub_norm.weight", 
+                attn_sub_norm, 
+                raw_shape=attn_sub_norm.shape, 
+                raw_dtype=gguf.GGMLQuantizationType.F32
+            )
+            logger.info(f"blk.{i}.attn_sub_norm.weight, shape = {{{hidden_size}}}, F32")
+            
+            # Create identity tensor for ffn_sub_norm (all ones, shape: intermediate_size)
+            ffn_sub_norm = np.ones(intermediate_size, dtype=np.float32)
+            self.gguf_writer.add_tensor(
+                f"blk.{i}.ffn_sub_norm.weight", 
+                ffn_sub_norm, 
+                raw_shape=ffn_sub_norm.shape, 
+                raw_dtype=gguf.GGMLQuantizationType.F32
+            )
+            logger.info(f"blk.{i}.ffn_sub_norm.weight, shape = {{{intermediate_size}}}, F32")
 
 
 ###### CONVERSION LOGIC ######
