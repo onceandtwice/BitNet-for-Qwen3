@@ -1106,7 +1106,7 @@ class QwenModel(BitnetModel):
         assert len(tokens) == vocab.vocab_size
 
         self.gguf_writer.add_tokenizer_model("gpt2")
-        self.gguf_writer.add_tokenizer_pre("qwen3")
+        self.gguf_writer.add_tokenizer_pre("qwen2")
         self.gguf_writer.add_token_list(tokens)
         self.gguf_writer.add_token_scores(scores)
         self.gguf_writer.add_token_types(toktypes)
