@@ -1136,9 +1136,36 @@ class QwenModel(BitnetModel):
         - model.layers.{i}.mlp.{proj}.weight
         """
         # Map q_norm and k_norm to GGUF (BITNET now supports them)
+        # Reshape from 1D [n_embd_head_k * n_head] to 2D [n_embd_head_k, n_head]
         if name.endswith(".self_attn.q_norm.weight"):
+            n_head = self.hparams.get("num_attention_heads", self.hparams.get("n_head"))
+            if n_head is None:
+                raise ValueError(f"Could not determine n_head for reshaping {name!r}")
+            # Calculate n_embd_head_k from tensor shape
+            total_size = data_torch.shape[0]
+            n_embd_head_k = total_size // n_head
+            if total_size != n_embd_head_k * n_head:
+                raise ValueError(f"Tensor {name!r} has shape {data_torch.shape}, which is not divisible by n_head={n_head}")
+            # Reshape from 1D to 2D
+            data_torch = data_torch.reshape(n_embd_head_k, n_head)
+            logger.debug(f"Reshaped {name!r} from {total_size} to [{n_embd_head_k}, {n_head}]")
             return [(self.map_tensor_name(name), data_torch)]
+        
         if name.endswith(".self_attn.k_norm.weight"):
+            n_head_kv = self.hparams.get("num_key_value_heads", self.hparams.get("n_head_kv"))
+            if n_head_kv is None:
+                # Fallback: assume same as n_head if not specified
+                n_head_kv = self.hparams.get("num_attention_heads", self.hparams.get("n_head"))
+            if n_head_kv is None:
+                raise ValueError(f"Could not determine n_head_kv for reshaping {name!r}")
+            # Calculate n_embd_head_k from tensor shape
+            total_size = data_torch.shape[0]
+            n_embd_head_k = total_size // n_head_kv
+            if total_size != n_embd_head_k * n_head_kv:
+                raise ValueError(f"Tensor {name!r} has shape {data_torch.shape}, which is not divisible by n_head_kv={n_head_kv}")
+            # Reshape from 1D to 2D
+            data_torch = data_torch.reshape(n_embd_head_k, n_head_kv)
+            logger.debug(f"Reshaped {name!r} from {total_size} to [{n_embd_head_k}, {n_head_kv}]")
             return [(self.map_tensor_name(name), data_torch)]
 
         # Skip lm_head.weight - BITNET architecture doesn't support OUTPUT tensor
