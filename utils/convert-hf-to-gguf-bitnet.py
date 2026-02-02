@@ -1135,9 +1135,11 @@ class QwenModel(BitnetModel):
         - model.layers.{i}.self_attn.{proj}.weight
         - model.layers.{i}.mlp.{proj}.weight
         """
-        if name.endswith((".self_attn.k_norm.weight", ".self_attn.q_norm.weight", 
-                      ".self_attn.v_norm.weight")):
-            return []  # Skip these tensors, we will handle them in write_tensors
+        # Map q_norm and k_norm to GGUF (BITNET now supports them)
+        if name.endswith(".self_attn.q_norm.weight"):
+            return [(self.map_tensor_name(name), data_torch)]
+        if name.endswith(".self_attn.k_norm.weight"):
+            return [(self.map_tensor_name(name), data_torch)]
 
         # Skip lm_head.weight - BITNET architecture doesn't support OUTPUT tensor
         if name == "lm_head.weight":
