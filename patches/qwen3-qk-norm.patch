@@ -33,7 +33,7 @@ index cfa6e534..1179550e 100644
          MODEL_TENSOR.ATTN_OUT_NORM: (
              "encoder.layer.{bid}.attention.output.LayerNorm",  # bert
 diff --git a/src/llama.cpp b/src/llama.cpp
-index 666fcc4d..9859cf48 100644
+index 666fcc4d..8c8f61b4 100644
 --- a/src/llama.cpp
 +++ b/src/llama.cpp
 @@ -1337,11 +1337,13 @@ static const std::map<llm_arch, std::map<llm_tensor, const char *>> LLM_TENSOR_N
@@ -55,7 +55,7 @@ index 666fcc4d..9859cf48 100644
                          auto & layer = model.layers[i];
  
                          layer.attn_norm     = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_NORM,     "weight", i), {n_embd});
-+                        # adding qk norm here for qwen3 support, optional for backwards compat
++                        // adding qk norm here for qwen3 support, optional for backwards compat
 +                        layer.attn_q_norm   = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_Q_NORM,  "weight", i), {n_embd_head_k, n_head}, llama_model_loader::TENSOR_NOT_REQUIRED);
 +                        layer.attn_k_norm   = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_K_NORM,  "weight", i), {n_embd_head_k, n_head_kv}, llama_model_loader::TENSOR_NOT_REQUIRED);
                          layer.attn_sub_norm = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_SUB_NORM, "weight", i), {n_embd});
@@ -100,7 +100,7 @@ index 666fcc4d..9859cf48 100644
 +                                model.layers[il].attn_k_norm_b,
 +                                LLM_NORM, cb, il);
 +                    cb(Kcur, "Kcur", il);
-+                    Kcur = ggml_reshape_2d(ctx0, Kcur, n_embd_gqa, n_tokens);
++                    Kcur = ggml_reshape_2d(ctx0, Kcur, hparams.n_embd_k_gqa(il), n_tokens);
 +                    cb(Kcur, "Kcur", il);
 +                }
 +
