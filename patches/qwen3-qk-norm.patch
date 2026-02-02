@@ -1,3 +1,37 @@
+diff --git a/gguf-py/gguf/constants.py b/gguf-py/gguf/constants.py
+index e0abfccb..2a92f917 100644
+--- a/gguf-py/gguf/constants.py
++++ b/gguf-py/gguf/constants.py
+@@ -1156,6 +1156,9 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
+         MODEL_TENSOR.TOKEN_EMBD,
+         MODEL_TENSOR.OUTPUT_NORM,
+         MODEL_TENSOR.ATTN_NORM,
++        # added for qwen3 support
++        MODEL_TENSOR.ATTN_Q_NORM,
++        MODEL_TENSOR.ATTN_K_NORM,
+         MODEL_TENSOR.ATTN_OUT,
+         MODEL_TENSOR.FFN_NORM,
+         MODEL_TENSOR.FFN_GATE,
+diff --git a/gguf-py/gguf/tensor_mapping.py b/gguf-py/gguf/tensor_mapping.py
+index cfa6e534..1179550e 100644
+--- a/gguf-py/gguf/tensor_mapping.py
++++ b/gguf-py/gguf/tensor_mapping.py
+@@ -207,6 +207,15 @@ class TensorNameMap:
+             "transformer.h.{bid}.attn.attention.out_proj",                  # exaone
+         ),
+ 
++        # qk norm for qwen3 support
++        MODEL_TENSOR.ATTN_Q_NORM: (
++            "model.layers.{bid}.self_attn.q_norm",                            # qwen3
++        ),
++
++        MODEL_TENSOR.ATTN_K_NORM: (
++            "model.layers.{bid}.self_attn.k_norm",                            # qwen3
++        ),
++
+         # Attention output norm
+         MODEL_TENSOR.ATTN_OUT_NORM: (
+             "encoder.layer.{bid}.attention.output.LayerNorm",  # bert
 diff --git a/src/llama.cpp b/src/llama.cpp
 index 666fcc4d..9859cf48 100644
 --- a/src/llama.cpp
