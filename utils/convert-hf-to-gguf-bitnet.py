@@ -1007,11 +1007,6 @@ class BitnetModel(Model):
             for new_name, data in ((n, d.squeeze().numpy()) for n, d in self.modify_tensors(data_torch, name, bid)):
                 data: np.ndarray = data  # type hint
                 data_shape = data.shape
-                
-                # Debug: log shape for q_norm and k_norm tensors after numpy conversion
-                if "attn_q_norm" in new_name or "attn_k_norm" in new_name:
-                    logger.info(f"After numpy conversion {new_name}: shape {data_shape}")
-                
                 n_dims = len(data.shape)
                 data_dtype = data.dtype
                 data_qtype: gguf.GGMLQuantizationType | None = None
@@ -1158,9 +1153,16 @@ class QwenModel(BitnetModel):
             
             # Take first n_embd_head_k elements and broadcast to [n_embd_head_k, n_head]
             data_torch = data_torch[:n_embd_head_k].unsqueeze(1).repeat(1, n_head)
-            
-            logger.info(f"After reshaping {name!r}: expected shape [{n_embd_head_k}, {n_head}], actual shape {list(data_torch.shape)}")
+
             logger.debug(f"Broadcasted {name!r} to [{n_embd_head_k}, {n_head}]")
+
+            # Transpose to match what GGUF writer expects (it seems to transpose during write)
+            # We want [n_embd_head_k, n_head] = [128, 16], but writer outputs [16, 128]
+            # So transpose to [n_head, n_embd_head_k] = [16, 128] so writer outputs [128, 16]
+            data_torch = data_torch.t()
+
+            logger.debug(f"Transposed {name!r} to [{data_torch.shape}]")
+
             return [(self.map_tensor_name(name), data_torch)]
         
         if name.endswith(".self_attn.k_norm.weight"):
@@ -1180,9 +1182,16 @@ class QwenModel(BitnetModel):
             
             # Take first n_embd_head_k elements and broadcast to [n_embd_head_k, n_head]
             data_torch = data_torch[:n_embd_head_k].unsqueeze(1).repeat(1, n_head)
-            
-            logger.info(f"After reshaping {name!r}: expected shape [{n_embd_head_k}, {n_head}], actual shape {list(data_torch.shape)}")
+
             logger.debug(f"Broadcasted {name!r} to [{n_embd_head_k}, {n_head}]")
+            
+            # Transpose to match what GGUF writer expects (it seems to transpose during write)
+            # We want [n_embd_head_k, n_head] = [128, 16], but writer outputs [16, 128]
+            # So transpose to [n_head, n_embd_head_k] = [16, 128] so writer outputs [128, 16]
+            data_torch = data_torch.t()
+
+            logger.debug(f"Transposed {name!r} to [{data_torch.shape}]")
+            
             return [(self.map_tensor_name(name), data_torch)]
 
         # Skip lm_head.weight - BITNET architecture doesn't support OUTPUT tensor
