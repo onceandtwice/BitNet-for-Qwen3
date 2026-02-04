@@ -1154,6 +1154,7 @@ class QwenModel(BitnetModel):
             # Take first n_embd_head_k elements and broadcast to [n_embd_head_k, n_head]
             data_torch = data_torch[:n_embd_head_k].unsqueeze(1).repeat(1, n_head)
             
+            logger.info(f"After reshaping {name!r}: expected shape [{n_embd_head_k}, {n_head}], actual shape {list(data_torch.shape)}")
             logger.debug(f"Broadcasted {name!r} to [{n_embd_head_k}, {n_head}]")
             return [(self.map_tensor_name(name), data_torch)]
         
@@ -1175,6 +1176,7 @@ class QwenModel(BitnetModel):
             # Take first n_embd_head_k elements and broadcast to [n_embd_head_k, n_head]
             data_torch = data_torch[:n_embd_head_k].unsqueeze(1).repeat(1, n_head)
             
+            logger.info(f"After reshaping {name!r}: expected shape [{n_embd_head_k}, {n_head}], actual shape {list(data_torch.shape)}")
             logger.debug(f"Broadcasted {name!r} to [{n_embd_head_k}, {n_head}]")
             return [(self.map_tensor_name(name), data_torch)]
 
