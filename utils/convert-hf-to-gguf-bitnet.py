@@ -1171,9 +1171,6 @@ class QwenModel(BitnetModel):
             if n_head is None:
                 raise ValueError(f"Could not determine n_head for reshaping {name!r}")
             
-            # Use n_head_kv for k_norm (may be different from n_head for GQA models)
-            n_head_kv = self.hparams.get("num_key_value_heads", n_head)
-            
             # Get n_embd_head_k from model config
             n_embd = self.hparams.get("hidden_size", self.hparams.get("n_embd"))
             if n_embd is None:
@@ -1183,15 +1180,13 @@ class QwenModel(BitnetModel):
             # Flatten tensor to handle any input shape (1D, 2D, etc.)
             data_torch = data_torch.flatten()
             
-            # Take first n_embd_head_k elements and broadcast to [n_embd_head_k, n_head_kv]
-            data_torch = data_torch[:n_embd_head_k].unsqueeze(1).repeat(1, n_head_kv)
+            # Take first n_embd_head_k elements and broadcast to [n_embd_head_k, n_head]
+            data_torch = data_torch[:n_embd_head_k].unsqueeze(1).repeat(1, n_head)
 
-            logger.info(f"After reshaping {name!r}: expected shape [{n_embd_head_k}, {n_head_kv}], actual shape {list(data_torch.shape)}")
-            logger.debug(f"Broadcasted {name!r} to [{n_embd_head_k}, {n_head_kv}]")
-            
+            logger.debug(f"Broadcasted {name!r} to [{n_embd_head_k}, {n_head}]")
             # Transpose to match what GGUF writer expects (it seems to transpose during write)
-            # We want [n_embd_head_k, n_head_kv] = [128, 8], but writer outputs [8, 128]
-            # So transpose to [n_head_kv, n_embd_head_k] = [8, 128] so writer outputs [128, 8]
+            # We want [n_embd_head_k, n_head] = [128, 16], but writer outputs [16, 128]
+            # So transpose to [n_head, n_embd_head_k] = [16, 128] so writer outputs [128, 16]
             data_torch = data_torch.t()
 
             logger.debug(f"Transposed {name!r} to [{data_torch.shape}]")
