@@ -1138,6 +1138,9 @@ class QwenModel(BitnetModel):
         # Map q_norm and k_norm to GGUF (BITNET now supports them)
         # Reshape to [n_embd_head_k, n_head] as expected by loader
         if name.endswith(".self_attn.q_norm.weight"):
+
+            logger.info(f"Original tensor {name!r} shape: {data_torch.shape}")
+
             n_head = self.hparams.get("num_attention_heads", self.hparams.get("n_head"))
             if n_head is None:
                 raise ValueError(f"Could not determine n_head for reshaping {name!r}")
@@ -1162,6 +1165,8 @@ class QwenModel(BitnetModel):
             return [(self.map_tensor_name(name), data_torch)]
         
         if name.endswith(".self_attn.k_norm.weight"):
+            logger.info(f"Original tensor {name!r} shape: {data_torch.shape}")
+            
             n_head_kv = self.hparams.get("num_key_value_heads", self.hparams.get("n_head_kv"))
             if n_head_kv is None:
                 # Fallback: assume same as n_head if not specified
@@ -1180,15 +1185,11 @@ class QwenModel(BitnetModel):
             
             # Flatten tensor to handle any input shape (1D, 2D, etc.)
             data_torch = data_torch.flatten()
-            total_size = data_torch.shape[0]
             
-            # Verify total size matches expected
-            if total_size != n_embd_head_k * n_head_kv:
-                raise ValueError(f"Tensor {name!r} has total size {total_size}, expected {n_embd_head_k * n_head_kv} (n_embd_head_k={n_embd_head_k}, n_head_kv={n_head_kv})")
+            # Take first n_embd_head_k elements and broadcast to [n_embd_head_k, n_head_kv]
+            data_torch = data_torch[:n_embd_head_k].unsqueeze(1).expand(n_embd_head_k, n_head_kv).clone()
             
-            # Reshape to [n_embd_head_k, n_head_kv] as expected by loader
-            data_torch = data_torch.reshape(n_embd_head_k, n_head_kv)
-            logger.debug(f"Reshaped {name!r} to [{n_embd_head_k}, {n_head_kv}]")
+            logger.debug(f"Broadcasted {name!r} to [{n_embd_head_k}, {n_head_kv}]")
             return [(self.map_tensor_name(name), data_torch)]
 
         # Skip lm_head.weight - BITNET architecture doesn't support OUTPUT tensor
