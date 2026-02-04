@@ -1152,13 +1152,12 @@ class QwenModel(BitnetModel):
             data_torch = data_torch.flatten()
             
             # Take first n_embd_head_k elements and broadcast to [n_embd_head_k, n_head]
-            data_torch = data_torch[:n_embd_head_k].unsqueeze(1).expand(n_embd_head_k, n_head).clone()
+            data_torch = data_torch[:n_embd_head_k].unsqueeze(1).repeat(1, n_head)
             
             logger.debug(f"Broadcasted {name!r} to [{n_embd_head_k}, {n_head}]")
             return [(self.map_tensor_name(name), data_torch)]
         
         if name.endswith(".self_attn.k_norm.weight"):
-            logger.info(f"Original tensor {name!r} shape: {data_torch.shape}")
             
             n_head = self.hparams.get("num_attention_heads", self.hparams.get("n_head"))
             if n_head is None:
@@ -1174,7 +1173,7 @@ class QwenModel(BitnetModel):
             data_torch = data_torch.flatten()
             
             # Take first n_embd_head_k elements and broadcast to [n_embd_head_k, n_head]
-            data_torch = data_torch[:n_embd_head_k].unsqueeze(1).expand(n_embd_head_k, n_head).clone()
+            data_torch = data_torch[:n_embd_head_k].unsqueeze(1).repeat(1, n_head)
             
             logger.debug(f"Broadcasted {name!r} to [{n_embd_head_k}, {n_head}]")
             return [(self.map_tensor_name(name), data_torch)]
