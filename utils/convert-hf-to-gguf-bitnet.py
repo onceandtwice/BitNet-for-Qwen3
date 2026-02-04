@@ -1007,6 +1007,11 @@ class BitnetModel(Model):
             for new_name, data in ((n, d.squeeze().numpy()) for n, d in self.modify_tensors(data_torch, name, bid)):
                 data: np.ndarray = data  # type hint
                 data_shape = data.shape
+                
+                # Debug: log shape for q_norm and k_norm tensors after numpy conversion
+                if "attn_q_norm" in new_name or "attn_k_norm" in new_name:
+                    logger.info(f"After numpy conversion {new_name}: shape {data_shape}")
+                
                 n_dims = len(data.shape)
                 data_dtype = data.dtype
                 data_qtype: gguf.GGMLQuantizationType | None = None
