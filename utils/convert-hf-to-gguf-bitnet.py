@@ -1148,7 +1148,16 @@ class QwenModel(BitnetModel):
 
         merges = []
         vocab = {}
-        mergeable_ranks = tokenizer.mergeable_ranks
+        # Handle both slow and fast tokenizers
+        # Fast tokenizers (Qwen2TokenizerFast) store mergeable_ranks in tokenizer.model._mergeable_ranks
+        # Slow tokenizers have it directly as tokenizer.mergeable_ranks
+        if hasattr(tokenizer, 'mergeable_ranks'):
+            mergeable_ranks = tokenizer.mergeable_ranks
+        elif hasattr(tokenizer, 'model') and hasattr(tokenizer.model, '_mergeable_ranks'):
+            mergeable_ranks = tokenizer.model._mergeable_ranks
+        else:
+            raise AttributeError(f"Could not find mergeable_ranks in tokenizer {type(tokenizer).__name__}")
+        
         for token, rank in mergeable_ranks.items():
             vocab[self.token_bytes_to_string(token)] = rank
             if len(token) == 1:
