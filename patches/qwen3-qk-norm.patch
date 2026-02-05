@@ -73,7 +73,7 @@ index cfa6e534..1179550e 100644
          MODEL_TENSOR.ATTN_OUT_NORM: (
              "encoder.layer.{bid}.attention.output.LayerNorm",  # bert
 diff --git a/src/llama.cpp b/src/llama.cpp
-index 666fcc4d..39f6ca48 100644
+index 666fcc4d..e25d584d 100644
 --- a/src/llama.cpp
 +++ b/src/llama.cpp
 @@ -182,6 +182,7 @@ enum llm_arch {
@@ -507,3 +507,11 @@ index 666fcc4d..39f6ca48 100644
          case LLM_ARCH_QWEN2MOE:
              {
                  result = llm.build_qwen2moe();
+@@ -20117,6 +20362,7 @@ enum llama_rope_type llama_rope_type(const struct llama_model * model) {
+         case LLM_ARCH_QWEN:
+         case LLM_ARCH_QWEN2:
+         case LLM_ARCH_QWEN2MOE:
++        case LLM_ARCH_QWEN3:
+         case LLM_ARCH_OLMOE:
+         case LLM_ARCH_PHI2:
+         case LLM_ARCH_PHI3:
