@@ -1114,6 +1114,13 @@ class QwenModel(BitnetModel):
             parts = parts[:min_idx] + [parts[min_idx] + parts[min_idx + 1]] + parts[min_idx + 2:]
         return parts
     
+    def get_vocab_base_pre(self, tokenizer) -> str:
+        """
+        Override to use qwen2 pre-tokenizer for Qwen3 models.
+        Qwen3 uses the same pre-tokenizer as Qwen2.
+        """
+        return "qwen2"
+    
     def set_gguf_parameters(self):
         """Set GGUF parameters with rope scaling."""
         Model.set_gguf_parameters(self)
