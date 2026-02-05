@@ -1089,6 +1089,31 @@ class QwenModel(BitnetModel):
     Applies BitNet quantization to weight tensors.
     """
     
+    @staticmethod
+    def token_bytes_to_string(b):
+        """Convert token bytes to string using GPT2 byte encoder."""
+        from transformers.models.gpt2.tokenization_gpt2 import bytes_to_unicode
+        byte_encoder = bytes_to_unicode()
+        return ''.join([byte_encoder[ord(char)] for char in b.decode('latin-1')])
+
+    @staticmethod
+    def bpe(mergeable_ranks: dict[bytes, int], token: bytes, max_rank: int | None = None) -> list[bytes]:
+        """Apply BPE merging to a token."""
+        parts = [bytes([b]) for b in token]
+        while True:
+            min_idx = None
+            min_rank = None
+            for i, pair in enumerate(zip(parts[:-1], parts[1:])):
+                rank = mergeable_ranks.get(pair[0] + pair[1])
+                if rank is not None and (min_rank is None or rank < min_rank):
+                    min_idx = i
+                    min_rank = rank
+            if min_rank is None or (max_rank is not None and min_rank >= max_rank):
+                break
+            assert min_idx is not None
+            parts = parts[:min_idx] + [parts[min_idx] + parts[min_idx + 1]] + parts[min_idx + 2:]
+        return parts
+    
     def set_gguf_parameters(self):
         """Set GGUF parameters with rope scaling."""
         Model.set_gguf_parameters(self)
@@ -1096,27 +1121,72 @@ class QwenModel(BitnetModel):
         # Keep the rope scaling settings from BitnetModel
         self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.LINEAR)
         self.gguf_writer.add_rope_scaling_factor(1.0)
-
-    def get_vocab_base_pre(self, tokenizer) -> str:
-        """
-        Override to bypass hash detection for Qwen3.
-        Qwen3 uses the same pre-tokenizer as Qwen2.
-        """
-        return "qwen2"
     
-    def set_vocab(self):
+    def _set_vocab_qwen(self):
         """
-        Simple tokenizer setup for Qwen3.
-        Uses the base GPT2 method but forces pre-tokenizer to "qwen2" (same as Qwen3).
+        Qwen-specific tokenizer setup matching the standard llama.cpp converter.
+        Properly handles Qwen's BPE tokenizer with mergeable_ranks.
         """
-        tokens, toktypes, _ = self.get_vocab_base()
+        dir_model = self.dir_model
+        hparams = self.hparams
+        tokens: list[str] = []
+        toktypes: list[int] = []
+
+        from transformers import AutoTokenizer
+        tokenizer = AutoTokenizer.from_pretrained(dir_model, trust_remote_code=True)
+        vocab_size = hparams["vocab_size"]
+        assert max(tokenizer.get_vocab().values()) < vocab_size
+
+        tokpre = self.get_vocab_base_pre(tokenizer)
+
+        merges = []
+        vocab = {}
+        mergeable_ranks = tokenizer.mergeable_ranks
+        for token, rank in mergeable_ranks.items():
+            vocab[self.token_bytes_to_string(token)] = rank
+            if len(token) == 1:
+                continue
+            merged = self.bpe(mergeable_ranks, token, max_rank=rank)
+            assert len(merged) == 2
+            merges.append(' '.join(map(self.token_bytes_to_string, merged)))
+
+        # for this kind of tokenizer, added_vocab is not a subset of vocab, so they need to be combined
+        added_vocab = tokenizer.special_tokens
+        reverse_vocab = {id_ : encoded_tok for encoded_tok, id_ in {**vocab, **added_vocab}.items()}
+
+        for i in range(vocab_size):
+            if i not in reverse_vocab:
+                tokens.append(f"[PAD{i}]")
+                toktypes.append(gguf.TokenType.UNUSED)
+            elif reverse_vocab[i] in added_vocab:
+                tokens.append(reverse_vocab[i])
+                toktypes.append(gguf.TokenType.CONTROL)
+            else:
+                tokens.append(reverse_vocab[i])
+                toktypes.append(gguf.TokenType.NORMAL)
+
         self.gguf_writer.add_tokenizer_model("gpt2")
-        self.gguf_writer.add_tokenizer_pre("qwen2")
+        self.gguf_writer.add_tokenizer_pre(tokpre)
         self.gguf_writer.add_token_list(tokens)
         self.gguf_writer.add_token_types(toktypes)
 
-        special_vocab = gguf.SpecialVocab(self.dir_model, load_merges=True)
+        special_vocab = gguf.SpecialVocab(dir_model, load_merges=False)
+        special_vocab.merges = merges
+        # only add special tokens when they were not already loaded from config.json
+        # For Qwen3, config.json should already have the correct EOS token (<|im_end|>)
+        if len(special_vocab.special_token_ids) == 0:
+            special_vocab._set_special_token("bos", tokenizer.special_tokens["<|endoftext|>"])
+            special_vocab._set_special_token("eos", tokenizer.special_tokens["<|endoftext|>"])
+        # this one is usually not in config.json anyway
+        special_vocab._set_special_token("unk", tokenizer.special_tokens["<|endoftext|>"])
         special_vocab.add_to_gguf(self.gguf_writer)
+    
+    def set_vocab(self):
+        """
+        Use Qwen-specific tokenizer setup.
+        This properly handles Qwen's BPE tokenizer with mergeable_ranks.
+        """
+        self._set_vocab_qwen()
     
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         """
