@@ -33,7 +33,7 @@ index cfa6e534..1179550e 100644
          MODEL_TENSOR.ATTN_OUT_NORM: (
              "encoder.layer.{bid}.attention.output.LayerNorm",  # bert
 diff --git a/src/llama.cpp b/src/llama.cpp
-index 666fcc4d..9d981467 100644
+index 666fcc4d..1d42ccb6 100644
 --- a/src/llama.cpp
 +++ b/src/llama.cpp
 @@ -1337,11 +1337,13 @@ static const std::map<llm_arch, std::map<llm_tensor, const char *>> LLM_TENSOR_N
@@ -74,7 +74,7 @@ index 666fcc4d..9d981467 100644
 +                    cb(Qcur, "Qcur", il);
 +                    Qcur = llm_build_norm(ctx0, Qcur, hparams,
 +                                model.layers[il].attn_q_norm,
-+                                model.layers[il].attn_q_norm_b,
++                                NULL,
 +                                LLM_NORM_RMS, cb, il);
 +                    cb(Qcur, "Qcur", il);
 +                    Qcur = ggml_reshape_2d(ctx0, Qcur, n_embd, n_tokens);
@@ -97,7 +97,7 @@ index 666fcc4d..9d981467 100644
 +                    cb(Kcur, "Kcur", il);
 +                    Kcur = llm_build_norm(ctx0, Kcur, hparams,
 +                                model.layers[il].attn_k_norm,
-+                                model.layers[il].attn_k_norm_b,
++                                NULL,
 +                                LLM_NORM_RMS, cb, il);
 +                    cb(Kcur, "Kcur", il);
 +                    Kcur = ggml_reshape_2d(ctx0, Kcur, hparams.n_embd_k_gqa(il), n_tokens);
