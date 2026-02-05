@@ -1084,10 +1084,10 @@ class BitnetModel(Model):
 @Model.register("Qwen3ForCausalLM")
 class QwenModel(BitnetModel):
     """
-    Qwen3 model converter for BitNet GGUF format.
-    Inherits BitNet quantization logic but handles Qwen-specific tokenizer.
-    Applies BitNet quantization to weight tensors.
+    Qwen3 model converter for QWEN3 GGUF format with BitNet quantization.
+    Uses QWEN3 architecture but applies BitNet quantization to weight tensors.
     """
+    model_arch = gguf.MODEL_ARCH.QWEN3
     
     @staticmethod
     def token_bytes_to_string(b):
@@ -1227,10 +1227,8 @@ class QwenModel(BitnetModel):
             
             return [(self.map_tensor_name(name), data_torch)]
 
-        # Skip lm_head.weight - BITNET architecture doesn't support OUTPUT tensor
-        if name == "lm_head.weight":
-            logger.debug(f"Skipping tensor {name!r} - BITNET architecture doesn't support OUTPUT tensor")
-            return []
+        # QWEN3 architecture supports lm_head.weight, so don't skip it
+        # (BitNet quantization will still be applied if it matches the patterns below)
 
         # quant weight to i2 (in fp16)
         if name.endswith(("q_proj.weight", "k_proj.weight", "v_proj.weight", 
@@ -1242,44 +1240,12 @@ class QwenModel(BitnetModel):
     
     def write_tensors(self):
         """
-        Write all tensors including dummy attn_sub_norm and ffn_sub_norm for BITNET architecture.
+        Write all tensors for QWEN3 architecture.
+        QWEN3 doesn't need attn_sub_norm and ffn_sub_norm like BITNET does.
         """
-        # First, write all normal tensors using parent's method
-        super().write_tensors()
-        
-        # Add dummy attn_sub_norm and ffn_sub_norm tensors (identity tensors - all ones)
-        # These are required by BITNET architecture but Qwen3 doesn't have them
-        n_layers = self.block_count
-        hidden_size = self.hparams.get("hidden_size")
-        intermediate_size = self.hparams.get("intermediate_size")
-        
-        if hidden_size is None or intermediate_size is None:
-            logger.warning("Could not determine hidden_size or intermediate_size, skipping dummy sub_norm tensors")
-            return
-        
-        logger.info(f"Adding dummy attn_sub_norm and ffn_sub_norm tensors for {n_layers} layers")
-        
-        for i in range(n_layers):
-            # Create identity tensor for attn_sub_norm (all ones, shape: hidden_size)
-            # RMSNorm with all-ones weights is effectively a no-op
-            attn_sub_norm = np.ones(hidden_size, dtype=np.float32)
-            self.gguf_writer.add_tensor(
-                f"blk.{i}.attn_sub_norm.weight", 
-                attn_sub_norm, 
-                raw_shape=attn_sub_norm.shape, 
-                raw_dtype=gguf.GGMLQuantizationType.F32
-            )
-            logger.info(f"blk.{i}.attn_sub_norm.weight, shape = {{{hidden_size}}}, F32")
-            
-            # Create identity tensor for ffn_sub_norm (all ones, shape: intermediate_size)
-            ffn_sub_norm = np.ones(intermediate_size, dtype=np.float32)
-            self.gguf_writer.add_tensor(
-                f"blk.{i}.ffn_sub_norm.weight", 
-                ffn_sub_norm, 
-                raw_shape=ffn_sub_norm.shape, 
-                raw_dtype=gguf.GGMLQuantizationType.F32
-            )
-            logger.info(f"blk.{i}.ffn_sub_norm.weight, shape = {{{intermediate_size}}}, F32")
+        # Use parent's write_tensors method (from BitnetModel) which handles quantization
+        # but don't add the dummy sub_norm tensors since QWEN3 doesn't need them
+        BitnetModel.write_tensors(self)
 
 
 ###### CONVERSION LOGIC ######
