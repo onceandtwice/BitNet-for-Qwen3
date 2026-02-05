@@ -73,7 +73,7 @@ index cfa6e534..1179550e 100644
          MODEL_TENSOR.ATTN_OUT_NORM: (
              "encoder.layer.{bid}.attention.output.LayerNorm",  # bert
 diff --git a/src/llama.cpp b/src/llama.cpp
-index 666fcc4d..e25d584d 100644
+index 666fcc4d..8af21b9d 100644
 --- a/src/llama.cpp
 +++ b/src/llama.cpp
 @@ -182,6 +182,7 @@ enum llm_arch {
@@ -226,7 +226,7 @@ index 666fcc4d..e25d584d 100644
          case LLM_ARCH_QWEN2MOE:
              {
                  ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH, hparams.n_ff_exp, false);
-@@ -7920,6 +7962,45 @@ static bool llm_load_tensors(
+@@ -7920,6 +7962,46 @@ static bool llm_load_tensors(
  
                          layer.ffn_norm = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd});
  
@@ -249,8 +249,9 @@ index 666fcc4d..e25d584d 100644
 +                        }
 +                    }
 +
-+                    // output rerank head
-+                    model.cls_out = ml.create_tensor(ctx_output, tn(LLM_TENSOR_CLS_OUT, "weight"), {n_embd, hparams.n_cls_out}, llama_model_loader::TENSOR_NOT_REQUIRED);
++                    // output rerank head (optional - will be NULL if not present in model)
++                    // Use a placeholder size since it's TENSOR_NOT_REQUIRED and will be NULL if missing
++                    model.cls_out = ml.create_tensor(ctx_output, tn(LLM_TENSOR_CLS_OUT, "weight"), {n_embd, 1}, llama_model_loader::TENSOR_NOT_REQUIRED);
 +
 +                    for (int i = 0; i < n_layer; ++i) {
 +                        ggml_context * ctx_layer = ctx_for_layer(i);
@@ -272,7 +273,7 @@ index 666fcc4d..e25d584d 100644
                          layer.ffn_gate = ml.create_tensor(ctx_split, tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff});
                          layer.ffn_down = ml.create_tensor(ctx_split, tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd});
                          layer.ffn_up   = ml.create_tensor(ctx_split, tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff});
-@@ -8690,6 +8771,9 @@ static bool llm_load_tensors(
+@@ -8690,6 +8772,9 @@ static bool llm_load_tensors(
                          auto & layer = model.layers[i];
  
                          layer.attn_norm     = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_NORM,     "weight", i), {n_embd});
@@ -282,7 +283,7 @@ index 666fcc4d..e25d584d 100644
                          layer.attn_sub_norm = ml.create_tensor(ctx_layer, tn(LLM_TENSOR_ATTN_SUB_NORM, "weight", i), {n_embd});
  
                          layer.wq       = ml.create_tensor(ctx_split, tn(LLM_TENSOR_ATTN_Q,   "weight", i), {n_embd, n_embd});
-@@ -12366,6 +12450,138 @@ struct llm_build_context {
+@@ -12366,6 +12451,138 @@ struct llm_build_context {
          return gf;
      }
  
@@ -421,7 +422,7 @@ index 666fcc4d..e25d584d 100644
      struct ggml_cgraph * build_qwen2() {
          struct ggml_cgraph * gf = ggml_new_graph_custom(ctx0, llama_model_max_nodes(model), false);
  
-@@ -15263,7 +15479,7 @@ struct llm_build_context {
+@@ -15263,7 +15480,7 @@ struct llm_build_context {
  
              // self-attention
              {
@@ -430,7 +431,7 @@ index 666fcc4d..e25d584d 100644
                  struct ggml_tensor * Qcur = llm_build_lora_mm(lctx, ctx0, model.layers[il].wq, cur);
                  if (model.layers[il].wq_scale) {
                      Qcur = ggml_mul(ctx0, Qcur, model.layers[il].wq_scale);
-@@ -15274,7 +15490,6 @@ struct llm_build_context {
+@@ -15274,7 +15491,6 @@ struct llm_build_context {
                      cb(Qcur, "Qcur", il);
                  }
  
@@ -438,7 +439,7 @@ index 666fcc4d..e25d584d 100644
                  struct ggml_tensor * Kcur = llm_build_lora_mm(lctx, ctx0, model.layers[il].wk, cur);
                  if (model.layers[il].wk_scale) {
                      Kcur = ggml_mul(ctx0, Kcur, model.layers[il].wk_scale);
-@@ -15285,7 +15500,6 @@ struct llm_build_context {
+@@ -15285,7 +15501,6 @@ struct llm_build_context {
                      cb(Kcur, "Kcur", il);
                  }
  
@@ -446,7 +447,7 @@ index 666fcc4d..e25d584d 100644
                  struct ggml_tensor * Vcur = llm_build_lora_mm(lctx, ctx0, model.layers[il].wv, cur);
                  if (model.layers[il].wv_scale) {
                      Vcur = ggml_mul(ctx0, Vcur, model.layers[il].wv_scale);
-@@ -15296,19 +15510,46 @@ struct llm_build_context {
+@@ -15296,19 +15511,46 @@ struct llm_build_context {
                      cb(Vcur, "Vcur", il);
                  }
  
@@ -496,7 +497,7 @@ index 666fcc4d..e25d584d 100644
  
                  cur = llm_build_kv(ctx0, lctx, kv_self, gf,
                          NULL, NULL,
-@@ -16747,6 +16988,10 @@ static struct ggml_cgraph * llama_build_graph(
+@@ -16747,6 +16989,10 @@ static struct ggml_cgraph * llama_build_graph(
              {
                  result = llm.build_qwen2();
              } break;
@@ -507,7 +508,7 @@ index 666fcc4d..e25d584d 100644
          case LLM_ARCH_QWEN2MOE:
              {
                  result = llm.build_qwen2moe();
-@@ -20117,6 +20362,7 @@ enum llama_rope_type llama_rope_type(const struct llama_model * model) {
+@@ -20117,6 +20363,7 @@ enum llama_rope_type llama_rope_type(const struct llama_model * model) {
          case LLM_ARCH_QWEN:
          case LLM_ARCH_QWEN2:
          case LLM_ARCH_QWEN2MOE:
