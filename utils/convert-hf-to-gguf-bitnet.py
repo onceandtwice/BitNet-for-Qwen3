@@ -1121,6 +1121,24 @@ class QwenModel(BitnetModel):
         """
         return "qwen2"
     
+    def set_vocab(self):
+        """
+        Use Qwen2Model fallback approach: try SentencePiece first, then GPT2.
+        But explicitly set pre-tokenizer to "qwen2" instead of relying on hash detection.
+        """
+        try:
+            self._set_vocab_sentencepiece()
+        except FileNotFoundError:
+            # Fallback to GPT2 tokenizer setup, but override pre-tokenizer to "qwen2"
+            tokens, toktypes, _ = self.get_vocab_base()
+            self.gguf_writer.add_tokenizer_model("gpt2")
+            self.gguf_writer.add_tokenizer_pre("qwen2")  # Explicitly set to qwen2
+            self.gguf_writer.add_token_list(tokens)
+            self.gguf_writer.add_token_types(toktypes)
+            
+            special_vocab = gguf.SpecialVocab(self.dir_model, load_merges=True)
+            special_vocab.add_to_gguf(self.gguf_writer)
+    
     def set_gguf_parameters(self):
         """Set GGUF parameters with rope scaling."""
         Model.set_gguf_parameters(self)
@@ -1128,113 +1146,6 @@ class QwenModel(BitnetModel):
         # Keep the rope scaling settings from BitnetModel
         self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.LINEAR)
         self.gguf_writer.add_rope_scaling_factor(1.0)
-    
-    def _set_vocab_qwen(self):
-        """
-        Qwen-specific tokenizer setup matching the standard llama.cpp converter.
-        Properly handles Qwen's BPE tokenizer with mergeable_ranks.
-        """
-        dir_model = self.dir_model
-        hparams = self.hparams
-        tokens: list[str] = []
-        toktypes: list[int] = []
-
-        from transformers import AutoTokenizer
-        # Try to load slow tokenizer first (has mergeable_ranks directly)
-        # If that fails, fall back to fast tokenizer
-        try:
-            tokenizer = AutoTokenizer.from_pretrained(dir_model, trust_remote_code=True, use_fast=False)
-        except Exception:
-            # Fall back to fast tokenizer if slow is not available
-            tokenizer = AutoTokenizer.from_pretrained(dir_model, trust_remote_code=True, use_fast=True)
-        vocab_size = hparams["vocab_size"]
-        assert max(tokenizer.get_vocab().values()) < vocab_size
-
-        tokpre = self.get_vocab_base_pre(tokenizer)
-
-        merges = []
-        vocab = {}
-        # Handle both slow and fast tokenizers
-        # Fast tokenizers (Qwen2TokenizerFast) store mergeable_ranks in tokenizer.model._mergeable_ranks
-        # Slow tokenizers have it directly as tokenizer.mergeable_ranks
-        mergeable_ranks = None
-        try:
-            # Try direct attribute first (slow tokenizers)
-            mergeable_ranks = tokenizer.mergeable_ranks
-        except AttributeError:
-            try:
-                # Try fast tokenizer path: tokenizer.model._mergeable_ranks
-                mergeable_ranks = tokenizer.model._mergeable_ranks
-            except AttributeError:
-                try:
-                    # Alternative path: tokenizer.backend_tokenizer.model._mergeable_ranks
-                    mergeable_ranks = tokenizer.backend_tokenizer.model._mergeable_ranks
-                except AttributeError:
-                    # Last resort: try to get it via getattr with different paths
-                    mergeable_ranks = getattr(tokenizer, 'mergeable_ranks', None)
-                    if mergeable_ranks is None:
-                        mergeable_ranks = getattr(getattr(tokenizer, 'model', None), '_mergeable_ranks', None)
-                    if mergeable_ranks is None:
-                        backend = getattr(tokenizer, 'backend_tokenizer', None)
-                        if backend:
-                            mergeable_ranks = getattr(getattr(backend, 'model', None), '_mergeable_ranks', None)
-        
-        if mergeable_ranks is None:
-            # Debug: print available attributes
-            logger.error(f"Tokenzier type: {type(tokenizer).__name__}")
-            logger.error(f"Tokenzier attributes: {dir(tokenizer)[:20]}...")
-            if hasattr(tokenizer, 'model'):
-                logger.error(f"Tokenzier.model type: {type(tokenizer.model).__name__}")
-                logger.error(f"Tokenzier.model attributes: {dir(tokenizer.model)[:20]}...")
-            raise AttributeError(f"Could not find mergeable_ranks in tokenizer {type(tokenizer).__name__}. "
-                               f"Tried: tokenizer.mergeable_ranks, tokenizer.model._mergeable_ranks, "
-                               f"tokenizer.backend_tokenizer.model._mergeable_ranks")
-        
-        for token, rank in mergeable_ranks.items():
-            vocab[self.token_bytes_to_string(token)] = rank
-            if len(token) == 1:
-                continue
-            merged = self.bpe(mergeable_ranks, token, max_rank=rank)
-            assert len(merged) == 2
-            merges.append(' '.join(map(self.token_bytes_to_string, merged)))
-
-        # for this kind of tokenizer, added_vocab is not a subset of vocab, so they need to be combined
-        added_vocab = tokenizer.special_tokens
-        reverse_vocab = {id_ : encoded_tok for encoded_tok, id_ in {**vocab, **added_vocab}.items()}
-
-        for i in range(vocab_size):
-            if i not in reverse_vocab:
-                tokens.append(f"[PAD{i}]")
-                toktypes.append(gguf.TokenType.UNUSED)
-            elif reverse_vocab[i] in added_vocab:
-                tokens.append(reverse_vocab[i])
-                toktypes.append(gguf.TokenType.CONTROL)
-            else:
-                tokens.append(reverse_vocab[i])
-                toktypes.append(gguf.TokenType.NORMAL)
-
-        self.gguf_writer.add_tokenizer_model("gpt2")
-        self.gguf_writer.add_tokenizer_pre(tokpre)
-        self.gguf_writer.add_token_list(tokens)
-        self.gguf_writer.add_token_types(toktypes)
-
-        special_vocab = gguf.SpecialVocab(dir_model, load_merges=False)
-        special_vocab.merges = merges
-        # only add special tokens when they were not already loaded from config.json
-        # For Qwen3, config.json should already have the correct EOS token (<|im_end|>)
-        if len(special_vocab.special_token_ids) == 0:
-            special_vocab._set_special_token("bos", tokenizer.special_tokens["<|endoftext|>"])
-            special_vocab._set_special_token("eos", tokenizer.special_tokens["<|endoftext|>"])
-        # this one is usually not in config.json anyway
-        special_vocab._set_special_token("unk", tokenizer.special_tokens["<|endoftext|>"])
-        special_vocab.add_to_gguf(self.gguf_writer)
-    
-    def set_vocab(self):
-        """
-        Use Qwen-specific tokenizer setup.
-        This properly handles Qwen's BPE tokenizer with mergeable_ranks.
-        """
-        self._set_vocab_qwen()
     
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         """
