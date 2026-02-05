@@ -1228,13 +1228,14 @@ class QwenModel(BitnetModel):
             return [(self.map_tensor_name(name), data_torch)]
 
         # QWEN3 architecture supports lm_head.weight, so don't skip it
-        # (BitNet quantization will still be applied if it matches the patterns below)
-
-        # quant weight to i2 (in fp16)
-        if name.endswith(("q_proj.weight", "k_proj.weight", "v_proj.weight", 
-                          "down_proj.weight", "up_proj.weight", "gate_proj.weight",
-                          "o_proj.weight")):
-            data_torch = self.weight_quant(data_torch)
+        
+        # Only apply BitNet quantization when converting to F32 format
+        # For F16, keep original weights to allow normal Qwen3 model testing
+        if self.ftype == gguf.GGMLQuantizationType.F32:
+            if name.endswith(("q_proj.weight", "k_proj.weight", "v_proj.weight", 
+                              "down_proj.weight", "up_proj.weight", "gate_proj.weight",
+                              "o_proj.weight")):
+                data_torch = self.weight_quant(data_torch)
 
         return [(self.map_tensor_name(name), data_torch)]
     
