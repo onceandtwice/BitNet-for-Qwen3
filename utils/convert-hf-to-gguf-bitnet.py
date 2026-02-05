@@ -1140,7 +1140,13 @@ class QwenModel(BitnetModel):
         toktypes: list[int] = []
 
         from transformers import AutoTokenizer
-        tokenizer = AutoTokenizer.from_pretrained(dir_model, trust_remote_code=True)
+        # Try to load slow tokenizer first (has mergeable_ranks directly)
+        # If that fails, fall back to fast tokenizer
+        try:
+            tokenizer = AutoTokenizer.from_pretrained(dir_model, trust_remote_code=True, use_fast=False)
+        except Exception:
+            # Fall back to fast tokenizer if slow is not available
+            tokenizer = AutoTokenizer.from_pretrained(dir_model, trust_remote_code=True, use_fast=True)
         vocab_size = hparams["vocab_size"]
         assert max(tokenizer.get_vocab().values()) < vocab_size
 
@@ -1151,12 +1157,38 @@ class QwenModel(BitnetModel):
         # Handle both slow and fast tokenizers
         # Fast tokenizers (Qwen2TokenizerFast) store mergeable_ranks in tokenizer.model._mergeable_ranks
         # Slow tokenizers have it directly as tokenizer.mergeable_ranks
-        if hasattr(tokenizer, 'mergeable_ranks'):
+        mergeable_ranks = None
+        try:
+            # Try direct attribute first (slow tokenizers)
             mergeable_ranks = tokenizer.mergeable_ranks
-        elif hasattr(tokenizer, 'model') and hasattr(tokenizer.model, '_mergeable_ranks'):
-            mergeable_ranks = tokenizer.model._mergeable_ranks
-        else:
-            raise AttributeError(f"Could not find mergeable_ranks in tokenizer {type(tokenizer).__name__}")
+        except AttributeError:
+            try:
+                # Try fast tokenizer path: tokenizer.model._mergeable_ranks
+                mergeable_ranks = tokenizer.model._mergeable_ranks
+            except AttributeError:
+                try:
+                    # Alternative path: tokenizer.backend_tokenizer.model._mergeable_ranks
+                    mergeable_ranks = tokenizer.backend_tokenizer.model._mergeable_ranks
+                except AttributeError:
+                    # Last resort: try to get it via getattr with different paths
+                    mergeable_ranks = getattr(tokenizer, 'mergeable_ranks', None)
+                    if mergeable_ranks is None:
+                        mergeable_ranks = getattr(getattr(tokenizer, 'model', None), '_mergeable_ranks', None)
+                    if mergeable_ranks is None:
+                        backend = getattr(tokenizer, 'backend_tokenizer', None)
+                        if backend:
+                            mergeable_ranks = getattr(getattr(backend, 'model', None), '_mergeable_ranks', None)
+        
+        if mergeable_ranks is None:
+            # Debug: print available attributes
+            logger.error(f"Tokenzier type: {type(tokenizer).__name__}")
+            logger.error(f"Tokenzier attributes: {dir(tokenizer)[:20]}...")
+            if hasattr(tokenizer, 'model'):
+                logger.error(f"Tokenzier.model type: {type(tokenizer.model).__name__}")
+                logger.error(f"Tokenzier.model attributes: {dir(tokenizer.model)[:20]}...")
+            raise AttributeError(f"Could not find mergeable_ranks in tokenizer {type(tokenizer).__name__}. "
+                               f"Tried: tokenizer.mergeable_ranks, tokenizer.model._mergeable_ranks, "
+                               f"tokenizer.backend_tokenizer.model._mergeable_ranks")
         
         for token, rank in mergeable_ranks.items():
             vocab[self.token_bytes_to_string(token)] = rank
